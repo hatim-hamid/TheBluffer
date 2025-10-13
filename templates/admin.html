@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bluffer - Word Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Poppins', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-100 p-8">
+    <div class="max-w-4xl mx-auto bg-white p-8 rounded-2xl shadow-lg">
+        <h1 class="text-4xl font-bold text-slate-800 mb-6 border-b pb-4">Manage Secret Words</h1>
+
+        <!-- Add Word Form -->
+        <div class="mb-8">
+            <h2 class="text-2xl font-semibold text-slate-700 mb-4">Add New Word</h2>
+            <form id="add-word-form" class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                <div>
+                    <label for="topic-input" class="block text-sm font-medium text-slate-600">Topic</label>
+                    <input type="text" id="topic-input" required class="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label for="word-input" class="block text-sm font-medium text-slate-600">Secret Word</label>
+                    <input type="text" id="word-input" required class="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <button type="submit" class="w-full md:w-auto justify-self-start bg-indigo-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-indigo-700 transition">Add Word</button>
+            </form>
+            <p id="form-message" class="text-green-600 mt-2"></p>
+        </div>
+        <!-- CSV Import Section -->
+        <div class="mb-8 p-6 bg-slate-50 rounded-xl border-2 border-slate-200">
+            <h2 class="text-2xl font-semibold text-slate-700 mb-4">Import Words from CSV</h2>
+            <div class="space-y-4">
+                <div>
+                    <p class="text-sm text-slate-600 mb-2">CSV Format: Each line should have <strong>topic,word</strong></p>
+                    <p class="text-xs text-slate-500 mb-3">Example:<br>
+                        Animals,elephant<br>
+                        Animals,giraffe<br>
+                        Vehicles,motorcycle<br>
+                        Vehicles,helicopter
+                    </p>
+                </div>
+                <div>
+                    <label for="csv-file-input" class="block text-sm font-medium text-slate-600 mb-2">Choose CSV File</label>
+                    <input type="file" id="csv-file-input" accept=".csv" class="block w-full text-sm text-slate-500
+                        file:mr-4 file:py-2 file:px-4
+                        file:rounded-lg file:border-0
+                        file:text-sm file:font-semibold
+                        file:bg-indigo-50 file:text-indigo-700
+                        hover:file:bg-indigo-100">
+                </div>
+                <button id="import-csv-btn" class="bg-green-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-green-700 transition">Import CSV</button>
+                <p id="import-message" class="text-sm font-semibold mt-2"></p>
+                <div id="import-progress" class="hidden">
+                    <div class="w-full bg-gray-200 rounded-full h-2.5">
+                        <div id="progress-bar" class="bg-green-600 h-2.5 rounded-full" style="width: 0%"></div>
+                    </div>
+                    <p id="progress-text" class="text-sm text-slate-600 mt-1"></p>
+                </div>
+            </div>
+        </div>
+        <!-- Word List -->
+        <div>
+            <h2 class="text-2xl font-semibold text-slate-700 mb-4">Word Bank</h2>
+            <div class="overflow-x-auto">
+                <table class="min-w-full bg-white border border-slate-200">
+                    <thead class="bg-slate-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Topic</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Word</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="word-table-body" class="divide-y divide-slate-200">
+                        <!-- Words will be dynamically inserted here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('add-word-form');
+        const topicInput = document.getElementById('topic-input');
+        const wordInput = document.getElementById('word-input');
+        const formMessage = document.getElementById('form-message');
+        const tableBody = document.getElementById('word-table-body');
+
+        // Fetch and display all words on page load
+        async function fetchWords() {
+            try {
+                const response = await fetch('/api/words');
+                const words = await response.json();
+                renderWords(words);
+            } catch (error) {
+                console.error('Failed to fetch words:', error);
+            }
+        }
+
+        // Render words to the table
+        function renderWords(words) {
+            tableBody.innerHTML = words.map(word => `
+                <tr id="word-${word.id}">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">${word.topic}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-700">${word.word}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button onclick="deleteWord(${word.id})" class="text-red-600 hover:text-red-900">Delete</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // Handle form submission to add a new word
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const topic = topicInput.value;
+            const word = wordInput.value;
+
+            try {
+                const response = await fetch('/api/words', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ topic, word })
+                });
+                if (response.ok) {
+                    form.reset();
+                    formMessage.textContent = 'Word added successfully!';
+                    setTimeout(() => formMessage.textContent = '', 3000);
+                    fetchWords(); // Refresh the list
+                } else {
+                    const error = await response.json();
+                    formMessage.textContent = `Error: ${error.error}`;
+                }
+            } catch (error) {
+                console.error('Failed to add word:', error);
+                formMessage.textContent = 'An error occurred on the server.';
+            }
+        });
+
+        // Function to delete a word
+        async function deleteWord(wordId) {
+            if (!confirm('Are you sure you want to delete this word?')) return;
+
+            try {
+                const response = await fetch(`/api/words/${wordId}`, {
+                    method: 'DELETE'
+                });
+                if (response.ok) {
+                    const row = document.getElementById(`word-${wordId}`);
+                    if(row) row.remove();
+                } else {
+                    alert('Failed to delete the word.');
+                }
+            } catch (error) {
+                console.error('Failed to delete word:', error);
+                alert('An error occurred.');
+            }
+        }
+
+        // Initial load
+        fetchWords();
+
+
+    // CSV Import functionality
+    const csvFileInput = document.getElementById('csv-file-input');
+    const importCsvBtn = document.getElementById('import-csv-btn');
+    const importMessage = document.getElementById('import-message');
+    const importProgress = document.getElementById('import-progress');
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
+
+    importCsvBtn.addEventListener('click', async () => {
+        const file = csvFileInput.files[0];
+        if (!file) {
+            importMessage.textContent = 'Please select a CSV file first.';
+            importMessage.className = 'text-sm font-semibold mt-2 text-red-600';
+            return;
+        }
+
+        importMessage.textContent = 'Reading file...';
+        importMessage.className = 'text-sm font-semibold mt-2 text-blue-600';
+        importProgress.classList.remove('hidden');
+
+        try {
+            const text = await file.text();
+            const lines = text.split('\n').filter(line => line.trim() !== '');
+            
+            let imported = 0;
+            let skipped = 0;
+            let errors = 0;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                const parts = line.split(',');
+                
+                if (parts.length !== 2) {
+                    console.log(`Skipping invalid line ${i + 1}: ${line}`);
+                    errors++;
+                    continue;
+                }
+
+                const topic = parts[0].trim();
+                const word = parts[1].trim();
+
+                if (!topic || !word) {
+                    console.log(`Skipping empty topic/word on line ${i + 1}`);
+                    errors++;
+                    continue;
+                }
+
+                try {
+                    const response = await fetch('/api/words', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ topic, word })
+                    });
+
+                    if (response.ok) {
+                        imported++;
+                    } else if (response.status === 409) {
+                        skipped++; // Word already exists
+                    } else {
+                        errors++;
+                    }
+                } catch (error) {
+                    console.error(`Error importing line ${i + 1}:`, error);
+                    errors++;
+                }
+
+                // Update progress
+                const progress = ((i + 1) / lines.length) * 100;
+                progressBar.style.width = `${progress}%`;
+                progressText.textContent = `Processing ${i + 1} of ${lines.length}...`;
+            }
+
+            // Show results
+            importMessage.textContent = `Import complete! Imported: ${imported}, Skipped (duplicates): ${skipped}, Errors: ${errors}`;
+            importMessage.className = 'text-sm font-semibold mt-2 text-green-600';
+            
+            // Reset progress bar after 2 seconds
+            setTimeout(() => {
+                importProgress.classList.add('hidden');
+                progressBar.style.width = '0%';
+            }, 2000);
+
+            // Refresh the word list
+            fetchWords();
+            
+            // Clear file input
+            csvFileInput.value = '';
+
+        } catch (error) {
+            console.error('Failed to read CSV file:', error);
+            importMessage.textContent = 'Error reading CSV file. Please check the format.';
+            importMessage.className = 'text-sm font-semibold mt-2 text-red-600';
+            importProgress.classList.add('hidden');
+        }
+    });
+    </script>
+</body>
+</html>

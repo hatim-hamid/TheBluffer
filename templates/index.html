@@ -1,0 +1,229 @@
+<!-- File: index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Bluffer - Host</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Poppins', sans-serif; }
+        .card {
+            background-color: white;
+            border-radius: 1.5rem;
+            padding: 2rem;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+        .btn {
+            padding: 0.75rem 1.5rem; border-radius: 0.75rem; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.05em; transition: all 0.3s ease;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .btn-primary { background-color: #4f46e5; color: white; }
+        .btn-primary:hover { background-color: #4338ca; }
+        .btn-secondary { background-color: #64748b; color: white; }
+        .btn-secondary:hover { background-color: #475569; }
+        .player-tag, .history-tag {
+            background-color: #f1f5f9; color: #1e293b;
+            padding: 0.5rem 1rem; border-radius: 9999px; font-weight: 600;
+        }
+        .history-tag { background-color: #fef2f2; color: #991b1b; }
+        .turn-indicator { box-shadow: 0 0 15px 2px #4f46e5; }
+        .clue-item { border-left: 4px solid #4f46e5; }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen flex items-center justify-center p-4">
+    <div id="game-container" class="w-full max-w-4xl mx-auto">
+        
+        <!-- Lobby View -->
+        <div id="lobby" class="card text-center">
+            <h1 class="text-5xl font-bold text-slate-800 mb-2">The Bluffer</h1>
+            <p class="text-slate-500 mb-6">Join on your phone!</p>
+            
+            <div id="lobby-controls" class="space-y-4 max-w-sm mx-auto">
+                 <div class="flex flex-col space-y-2">
+                    <label for="topic-select" class="font-semibold text-slate-600 self-start">Choose a Topic:</label>
+                    <select id="topic-select" class="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"></select>
+                </div>
+                <button id="start-game-btn" class="btn btn-primary w-full text-lg">Start Game</button>
+            </div>
+            
+            <div id="players-list-lobby" class="mt-8">
+                <h2 class="text-2xl font-semibold text-slate-700 mb-4">Players Joined</h2>
+                <div id="lobby-players" class="flex flex-wrap justify-center gap-4"></div>
+            </div>
+
+            <div id="word-history-lobby" class="mt-8 pt-6 border-t">
+                <h2 class="text-2xl font-semibold text-slate-700 mb-4">Previously Used Words</h2>
+                <div id="lobby-history" class="flex flex-wrap justify-center gap-3"></div>
+            </div>
+             <div id="error-message" class="mt-4 text-red-500 font-semibold"></div>
+        </div>
+
+        <!-- Game View -->
+        <div id="game-view" class="hidden">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="md:col-span-1 card">
+                    <h2 class="text-2xl font-bold text-slate-800 border-b pb-2 mb-4">Players</h2>
+                    <div id="players-list-game" class="space-y-3"></div>
+                     <div id="game-status" class="mt-6 p-4 bg-indigo-50 border-l-4 border-indigo-500 rounded-r-lg">
+                        <p class="font-semibold text-indigo-800">Game In Progress</p>
+                    </div>
+                    <div id="word-history-game" class="mt-6 pt-4 border-t">
+                        <h3 class="text-lg font-semibold text-slate-700 mb-2">Used Words</h3>
+                        <div id="game-history-admin" class="flex flex-wrap gap-2"></div>
+                    </div>
+                </div>
+
+                <div class="md:col-span-2 card">
+                    <h2 class="text-2xl font-bold text-slate-800 border-b pb-2 mb-4">Clues Given</h2>
+                    <p id="turn-info" class="text-center text-xl font-semibold text-slate-600 my-4 p-2 bg-slate-50 rounded-lg"></p>
+                    <div id="clues-grid" class="grid grid-cols-2 md:grid-cols-3 gap-4"></div>
+                    <div id="vote-controls" class="mt-8 text-center hidden">
+                        <button id="trigger-vote-btn" class="btn btn-secondary">Let's Vote!</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Game Over Modal -->
+        <div id="game-over-modal" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center">
+            <div class="card text-center transform transition-all scale-95 opacity-0">
+                <h2 class="text-4xl font-bold text-slate-800 mb-4">Game Over!</h2>
+                <p id="game-over-message" class="text-slate-600 text-lg mb-6"></p>
+                <button onclick="window.location.reload()" class="btn btn-primary">Play Again</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+
+        socket.on('connect', () => {
+            console.log('Connected to server as host.');
+            socket.emit('register_as_host');
+        });
+
+        socket.on('host_registered', (data) => {
+            console.log('Successfully registered as host');
+        });
+
+        const lobbyView = document.getElementById('lobby');
+        const gameView = document.getElementById('game-view');
+        const topicSelect = document.getElementById('topic-select');
+        const startGameBtn = document.getElementById('start-game-btn');
+        const lobbyPlayers = document.getElementById('lobby-players');
+        const lobbyHistory = document.getElementById('lobby-history');
+        const gamePlayers = document.getElementById('players-list-game');
+        const cluesList = document.getElementById('clues-list');
+        const turnInfo = document.getElementById('turn-info');
+        const voteControls = document.getElementById('vote-controls');
+        const triggerVoteBtn = document.getElementById('trigger-vote-btn');
+        const gameOverModal = document.getElementById('game-over-modal');
+        const gameOverMessage = document.getElementById('game-over-message');
+        const errorMessage = document.getElementById('error-message');
+
+        async function fetchTopics() {
+            try {
+                const response = await fetch('/api/topics');
+                const topics = await response.json();
+                topicSelect.innerHTML = topics.map(topic => `<option value="${topic}">${topic}</option>`).join('');
+            } catch (error) {
+                errorMessage.textContent = 'Could not load topics from server.';
+            }
+        }
+        
+        startGameBtn.addEventListener('click', () => socket.emit('start_game', { topic: topicSelect.value }));
+        triggerVoteBtn.addEventListener('click', () => socket.emit('trigger_vote'));
+
+        socket.on('error', (data) => {
+            errorMessage.textContent = data.msg;
+            setTimeout(() => errorMessage.textContent = '', 3000);
+        });
+
+        socket.on('game_update', (state) => {
+            updateWordHistory(state.word_history);
+
+            if (!state.is_running) {
+                lobbyView.style.display = 'block';
+                gameView.style.display = 'none';
+                updateLobbyPlayers(state.players);
+            } else {
+                lobbyView.style.display = 'none';
+                gameView.style.display = 'block';
+                updateGamePlayers(state.players, state.whos_turn);
+                updatePlayerClueBoxes(state.players, state.clues, state.whos_turn);  // CHANGED THIS LINE
+                turnInfo.textContent = state.whos_turn ? `It's ${state.whos_turn}'s turn.` : "Waiting...";
+                voteControls.style.display = 'block';
+            }
+        });
+        
+        socket.on('game_over', (data) => {
+            gameOverMessage.textContent = data.message;
+            gameOverModal.style.display = 'flex';
+            setTimeout(() => {
+                gameOverModal.querySelector('.card').classList.add('scale-100', 'opacity-100');
+            }, 10);
+        });
+
+        function updateLobbyPlayers(players) {
+            lobbyPlayers.innerHTML = players.length ? 
+                players.map(p => `<div class="player-tag">${p}</div>`).join('') :
+                '<p class="text-slate-400">No players yet.</p>';
+        }
+
+        function updateGamePlayers(players, whos_turn) {
+            gamePlayers.innerHTML = players.map(p => `
+                <div class="player-tag ${p === whos_turn ? 'turn-indicator' : ''}">${p}</div>`).join('');
+        }
+        
+        function updateClues(clues) {
+            // This function is no longer used, but keep it for compatibility
+        }
+
+        function updatePlayerClueBoxes(players, clues, whos_turn) {
+            const cluesGrid = document.getElementById('clues-grid');
+            if (!cluesGrid) return;
+            
+            // Create a map of player -> their latest clue
+            const playerClues = {};
+            clues.forEach(c => {
+                playerClues[c.player] = c.clue;
+            });
+            
+            // Generate boxes for each player
+            cluesGrid.innerHTML = players.map(player => {
+                const clue = playerClues[player] || 'Waiting...';
+                const isCurrentTurn = player === whos_turn;
+                const boxColor = isCurrentTurn ? 'bg-indigo-100 border-indigo-500 border-4' : 'bg-slate-50 border-slate-200 border-2';
+                const textColor = isCurrentTurn ? 'text-indigo-900' : 'text-slate-700';
+                
+                return `
+                    <div class="${boxColor} rounded-xl p-4 transition-all duration-300">
+                        <p class="font-bold ${textColor} text-sm mb-2">${player}</p>
+                        <p class="text-lg ${textColor} italic">"${clue}"</p>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateWordHistory(history) {
+            const lobbyContent = history.length ? 
+                history.map(word => `<div class="history-tag">${word}</div>`).join('') :
+                '<p class="text-slate-400">No games played yet.</p>';
+            lobbyHistory.innerHTML = lobbyContent;
+            
+            const gameHistoryAdmin = document.getElementById('game-history-admin');
+            if (gameHistoryAdmin) {
+                gameHistoryAdmin.innerHTML = history.length ? 
+                    history.map(word => `<div class="history-tag">${word}</div>`).join('') :
+                    '<p class="text-slate-400 text-sm">No words used yet.</p>';
+            }
+        }
+        
+        fetchTopics();
+    </script>
+</body>
+</html>

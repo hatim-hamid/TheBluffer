@@ -1,0 +1,295 @@
+<!-- File: player.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Bluffer - Player</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Poppins', sans-serif; }
+        .card { background-color: white; border-radius: 1.5rem; padding: 1.5rem; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); }
+        .btn { padding: 0.75rem 1.5rem; border-radius: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; transition: all 0.3s ease; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
+        .btn-primary { background-color: #4f46e5; color: white; }
+        .btn-secondary { background-color: #f97316; color: white; }
+        .btn-tertiary { background-color: #64748b; color: white; }
+        .btn:disabled { background-color: #94a3b8; cursor: not-allowed; }
+        .input-field { width: 100%; padding: 0.75rem; border-radius: 0.75rem; border: 1px solid #cbd5e1; }
+        .history-tag { background-color: #fef2f2; color: #991b1b; display: inline-block; padding: 0.25rem 0.75rem; border-radius: 9999px; font-weight: 500; font-size: 0.875rem; }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-md mx-auto">
+        <div id="join-view" class="card text-center">
+            <h1 class="text-4xl font-bold text-slate-800 mb-4">Join the Game</h1>
+            <input type="text" id="name-input" placeholder="Enter your name" class="input-field mb-4 text-center text-lg">
+            <button id="join-btn" class="btn btn-primary w-full">Join</button>
+            <p id="join-error" class="text-red-500 font-semibold mt-4 h-6"></p>
+            <div class="mt-6 pt-4 border-t">
+                <h3 class="text-lg font-semibold text-slate-600 mb-3">Previously Used Words</h3>
+                <div id="lobby-history" class="flex flex-wrap justify-center gap-2"></div>
+            </div>
+        </div>
+        <div id="game-view" class="hidden">
+            <div class="card space-y-4">
+                <div class="flex justify-between items-center border-b pb-3">
+                    <h2 class="text-2xl font-bold text-slate-800" id="player-name"></h2>
+                    <p id="player-role" class="px-4 py-1 rounded-full font-semibold text-white"></p>
+                </div>
+                <div>
+                    <button id="toggle-history-btn" class="text-sm text-slate-500 hover:text-slate-800">Show/Hide Word History</button>
+                    <div id="game-history" class="hidden mt-2 p-3 bg-slate-50 rounded-lg flex flex-wrap justify-center gap-2"></div>
+                </div>
+                <div id="normal-panel" class="hidden">
+                    <button id="reveal-word-btn" class="btn btn-tertiary w-full">Reveal Secret Word</button>
+                    <p id="secret-word-display" class="hidden text-center text-4xl font-bold mt-4 p-4 bg-slate-100 rounded-xl"></p>
+                </div>
+                <div id="bluffer-panel" class="hidden space-y-4">
+                    <div class="p-3 bg-blue-50 rounded-lg border-2 border-blue-200">
+                        <p id="topic-hint" class="text-center font-semibold text-blue-800">Topic Hint: </p>
+                    </div>
+                    <div id="bluffer-guess-section" class="space-y-3 p-4 bg-orange-50 rounded-lg border-2 border-orange-200">
+                        <p class="text-center font-semibold text-orange-800">Secret Guess (only on your turn)</p>
+                        <p class="text-center text-sm text-orange-600">You have <span id="guesses-left">3</span> guesses left.</p>
+                        <input type="text" id="guess-input" placeholder="Type your secret guess" class="input-field text-center">
+                        <button id="guess-btn" class="btn btn-secondary w-full">Submit Secret Guess</button>
+                        <p id="guess-result" class="text-center font-semibold"></p>
+                    </div>
+                </div>
+                <div id="clue-panel" class="hidden space-y-3 pt-4 border-t">
+                    <p class="text-center text-xl font-bold text-indigo-600">It's your turn!</p>
+                    <input type="text" id="clue-input" placeholder="Enter your clue" class="input-field text-center">
+                    <button id="submit-clue-btn" class="btn btn-primary w-full">Submit Clue</button>
+                </div>
+                <div id="waiting-panel" class="text-center p-4">
+                    <p id="waiting-text" class="text-slate-500 font-semibold text-lg"></p>
+                </div>
+                <div id="voting-panel" class="hidden space-y-4">
+                    <h3 class="text-xl font-bold text-center text-slate-700">Vote for the Bluffer!</h3>
+                    <div id="vote-options" class="grid grid-cols-2 gap-3"></div>
+                </div>
+            </div>
+        </div>
+        <div id="game-over-modal" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4">
+            <div class="card text-center">
+                <h2 class="text-3xl font-bold text-slate-800 mb-4">Game Over!</h2>
+                <p id="game-over-message" class="text-slate-600 text-lg mb-6"></p>
+                <button onclick="window.location.reload()" class="btn btn-primary">Play Again</button>
+            </div>
+        </div>
+    </div>
+    <script>
+        const socket = io({
+            reconnection: true,
+            reconnectionDelay: 1000,
+            reconnectionAttempts: 10,
+            transports: ['websocket', 'polling']
+        });
+        let myName = '';
+        let reconnectAttempts = 0;
+
+        // Keep-alive ping every 25 seconds
+        setInterval(() => {
+            if (socket.connected) {
+                socket.emit('ping');
+            }
+        }, 25000);
+
+        socket.on('pong', () => {
+            console.log('Connection alive');
+        });
+
+        socket.on('disconnect', (reason) => {
+            console.log('Disconnected:', reason);
+            if (reason === 'io server disconnect') {
+                socket.connect();
+            }
+        });
+
+        socket.on('reconnect', (attemptNumber) => {
+            console.log('Reconnected after', attemptNumber, 'attempts');
+            if (myName) {
+                socket.emit('join_game', { name: myName });
+            }
+        });
+
+        socket.on('reconnect_attempt', (attemptNumber) => {
+            console.log('Reconnection attempt:', attemptNumber);
+        });
+
+        socket.on('reconnect_failed', () => {
+            console.log('Reconnection failed');
+            alert('Connection lost. Please refresh the page.');
+        });
+
+        const ui = { 
+            joinView: document.getElementById('join-view'), 
+            gameView: document.getElementById('game-view'), 
+            nameInput: document.getElementById('name-input'), 
+            joinBtn: document.getElementById('join-btn'), 
+            joinError: document.getElementById('join-error'), 
+            lobbyHistory: document.getElementById('lobby-history'), 
+            gameHistory: document.getElementById('game-history'), 
+            toggleHistoryBtn: document.getElementById('toggle-history-btn'), 
+            playerName: document.getElementById('player-name'), 
+            playerRole: document.getElementById('player-role'), 
+            normalPanel: document.getElementById('normal-panel'), 
+            revealWordBtn: document.getElementById('reveal-word-btn'), 
+            secretWordDisplay: document.getElementById('secret-word-display'), 
+            blufferPanel: document.getElementById('bluffer-panel'), 
+            guessesLeft: document.getElementById('guesses-left'), 
+            guessInput: document.getElementById('guess-input'), 
+            guessBtn: document.getElementById('guess-btn'), 
+            guessResult: document.getElementById('guess-result'), 
+            cluePanel: document.getElementById('clue-panel'), 
+            clueInput: document.getElementById('clue-input'), 
+            submitClueBtn: document.getElementById('submit-clue-btn'), 
+            waitingPanel: document.getElementById('waiting-panel'), 
+            waitingText: document.getElementById('waiting-text'), 
+            votingPanel: document.getElementById('voting-panel'), 
+            voteOptions: document.getElementById('vote-options'), 
+            gameOverModal: document.getElementById('game-over-modal'), 
+            gameOverMessage: document.getElementById('game-over-message'), 
+        };
+        
+        ui.joinBtn.addEventListener('click', () => { 
+            myName = ui.nameInput.value.trim(); 
+            if(myName) socket.emit('join_game', { name: myName }); 
+        });
+        ui.revealWordBtn.addEventListener('click', () => socket.emit('reveal_word_request'));
+        ui.toggleHistoryBtn.addEventListener('click', () => ui.gameHistory.classList.toggle('hidden'));
+        ui.guessBtn.addEventListener('click', () => {
+            const guess = ui.guessInput.value.trim();
+            if (guess) {
+                socket.emit('guess_word', { guess: guess });
+                ui.guessInput.value = '';
+            }
+        });
+        ui.submitClueBtn.addEventListener('click', () => {
+            const clue = ui.clueInput.value.trim();
+            if (clue && !ui.submitClueBtn.disabled) {
+                ui.submitClueBtn.disabled = true;
+                socket.emit('submit_clue', { clue: clue });
+                ui.clueInput.value = '';
+                
+                setTimeout(() => {
+                    ui.submitClueBtn.disabled = false;
+                }, 1000);
+            }
+        });
+        
+        socket.on('join_success', (data) => { 
+            ui.joinView.style.display = 'none'; 
+            ui.gameView.style.display = 'block'; 
+            ui.playerName.textContent = data.name; 
+        });
+        
+        socket.on('error', (data) => { 
+            ui.joinError.textContent = data.msg; 
+            setTimeout(() => ui.joinError.textContent = '', 3000); 
+        });
+        
+        socket.on('role_info', (data) => {
+            const isBluffer = data.is_bluffer;
+            ui.playerRole.textContent = isBluffer ? 'Bluffer' : 'Normal';
+            ui.playerRole.className = `px-4 py-1 rounded-full font-semibold text-white ${isBluffer ? 'bg-red-500' : 'bg-green-500'}`;
+            
+            ui.blufferPanel.style.display = isBluffer ? 'block' : 'none';
+            ui.normalPanel.style.display = isBluffer ? 'none' : 'block';
+            
+            ui.secretWordDisplay.classList.add('hidden');
+            ui.revealWordBtn.textContent = 'Reveal Secret Word';
+            
+            ui.guessResult.textContent = '';
+            ui.guessBtn.disabled = false;
+            ui.guessInput.value = '';
+            ui.guessInput.disabled = false;
+            ui.guessesLeft.textContent = "3";
+            
+            // Show topic hint for bluffer
+            if (isBluffer && data.topic) {
+                const topicHint = document.getElementById('topic-hint');
+                if (topicHint) {
+                    topicHint.textContent = `Topic Hint: ${data.topic}`;
+                }
+            }
+        });
+        
+        socket.on('reveal_word_answer', (data) => {
+            ui.secretWordDisplay.textContent = data.word;
+            ui.secretWordDisplay.classList.toggle('hidden');
+            ui.revealWordBtn.textContent = ui.secretWordDisplay.classList.contains('hidden') ? 'Reveal Secret Word' : 'Hide Secret Word';
+        });
+        
+        socket.on('guess_result', (data) => {
+            ui.guessResult.textContent = data.msg;
+            ui.guessResult.className = data.correct ? 'text-center font-semibold text-green-600' : 'text-center font-semibold text-red-600';
+            if (data.correct) {
+                ui.guessBtn.disabled = true; 
+                ui.guessInput.disabled = true;
+            } else {
+                const match = data.msg.match(/(\d+)/);
+                if (match) ui.guessesLeft.textContent = match[1];
+            }
+        });
+        
+        socket.on('game_update', (state) => {
+            updateWordHistory(state.word_history);
+            if (!state.is_running) {
+                ui.joinView.style.display = 'block'; 
+                ui.gameView.style.display = 'none'; 
+                return;
+            }
+            
+            ui.joinView.style.display = 'none'; 
+            ui.gameView.style.display = 'block';
+            
+            ui.cluePanel.style.display = 'none'; 
+            ui.waitingPanel.style.display = 'none'; 
+            ui.votingPanel.style.display = 'none';
+            
+            if (state.voting_open) {
+                ui.votingPanel.style.display = 'block'; 
+                updateVoteOptions(state.players);
+            } 
+            else if (state.whos_turn === myName) {
+                ui.cluePanel.style.display = 'block';
+                ui.clueInput.value = '';
+                ui.submitClueBtn.disabled = false;
+            } 
+            else { 
+                ui.waitingPanel.style.display = 'block';
+                ui.waitingText.textContent = state.whos_turn ? `Waiting for ${state.whos_turn}...` : 'Waiting...';
+            }
+        });
+        
+        socket.on('game_over', (data) => {
+            ui.gameOverMessage.textContent = data.message;
+            ui.gameView.style.display = 'none';
+            ui.gameOverModal.style.display = 'flex';
+            
+            setTimeout(() => {
+                socket.disconnect();
+                window.location.reload();
+            }, 3000);
+        });
+        
+        function updateVoteOptions(players) { 
+            ui.voteOptions.innerHTML = players.filter(p => p !== myName).map(p => `<button class="btn btn-primary" onclick="submitVote('${p}')">${p}</button>`).join(''); 
+        }
+        
+        function submitVote(playerName) { 
+            socket.emit('submit_vote', { player_name: playerName }); 
+            ui.votingPanel.innerHTML = '<p class="text-center font-semibold">You voted. Waiting...</p>'; 
+        }
+        
+        function updateWordHistory(history) {
+            const content = history.length ? history.map(word => `<span class="history-tag">${word}</span>`).join(' ') : '<p class="text-slate-400 text-sm">No words used yet.</p>';
+            ui.lobbyHistory.innerHTML = content; 
+            ui.gameHistory.innerHTML = content;
+        }
+    </script>
+</body>
+</html>
