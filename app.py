@@ -1,10 +1,12 @@
 # File: app.py
+import eventlet
+eventlet.monkey_patch()
+
 import os
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit
 from flask_sqlalchemy import SQLAlchemy
 import random
-import threading
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'my-super-secret-bluffer-game-key!'
@@ -13,9 +15,8 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'bl
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
-socketio = SocketIO(app, async_mode='threading', cors_allowed_origins="*", ping_timeout=60, ping_interval=25)
+socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*", ping_timeout=60, ping_interval=25)
 
-game_lock = threading.Lock()
 sid_to_name = {}
 
 # --- Database Models ---
@@ -55,21 +56,20 @@ def add_word_to_history():
         game_state["word_history"].append(game_state["secret_word"])
 
 def broadcast_game_state():
-    with game_lock:
-        state_for_clients = {
-            "players": list(game_state["players"].keys()),
-            "is_running": game_state["is_running"],
-            "word_history": game_state["word_history"]
-        }
-        if game_state["is_running"]:
-            state_for_clients.update({
-                "players": game_state["player_order"],
-                "clues": game_state["clues"],
-                "whos_turn": get_whos_turn(),
-                "voting_open": game_state["voting_open"],
-                "secret_word": game_state["secret_word"],
-                "bluffer": game_state["bluffer"]
-            })
+    state_for_clients = {
+        "players": list(game_state["players"].keys()),
+        "is_running": game_state["is_running"],
+        "word_history": game_state["word_history"]
+    }
+    if game_state["is_running"]:
+        state_for_clients.update({
+            "players": game_state["player_order"],
+            "clues": game_state["clues"],
+            "whos_turn": get_whos_turn(),
+            "voting_open": game_state["voting_open"],
+            "secret_word": game_state["secret_word"],
+            "bluffer": game_state["bluffer"]
+        })
     socketio.emit('game_update', state_for_clients)
 
 # --- HTTP Routes ---
@@ -111,7 +111,7 @@ def add_word():
         db.session.commit()
         return jsonify(new_word.to_dict()), 201
     except Exception as e:
-        db.session.rollback()  # Add rollback on error
+        db.session.rollback()
         print(f"Error adding word: {e}")
         return jsonify({"error": str(e)}), 500
 
@@ -123,6 +123,7 @@ def delete_word(word_id):
         db.session.commit()
         return jsonify({"message": "Word deleted."})
     except Exception as e:
+        db.session.rollback()
         print(f"Error deleting word: {e}")
         return jsonify({"error": "Server error"}), 500
 
@@ -190,19 +191,18 @@ def handle_join(data):
             print(f"Join rejected for {name} - empty name")
             return emit('error', {'msg': 'Name is invalid or taken.'})
         
-        with game_lock:
-            if name in game_state["players"]:
-                old_sid = game_state["players"][name]['sid']
-                if old_sid != request.sid and old_sid in sid_to_name:
-                    print(f"Player {name} reconnecting - removing old connection")
-                    del sid_to_name[old_sid]
-            
-            game_state["players"][name] = {
-                'sid': request.sid, 
-                'is_bluffer': game_state["players"].get(name, {}).get('is_bluffer', False), 
-                'voted_for': game_state["players"].get(name, {}).get('voted_for', None)
-            }
-            sid_to_name[request.sid] = name
+        if name in game_state["players"]:
+            old_sid = game_state["players"][name]['sid']
+            if old_sid != request.sid and old_sid in sid_to_name:
+                print(f"Player {name} reconnecting - removing old connection")
+                del sid_to_name[old_sid]
+        
+        game_state["players"][name] = {
+            'sid': request.sid, 
+            'is_bluffer': game_state["players"].get(name, {}).get('is_bluffer', False), 
+            'voted_for': game_state["players"].get(name, {}).get('voted_for', None)
+        }
+        sid_to_name[request.sid] = name
         
         print(f"Player joined successfully: {name}")
         print(f"Total players: {list(game_state['players'].keys())}")
@@ -237,61 +237,60 @@ def handle_start_game(settings):
             socketio.emit('error', {'msg': 'You need at least 3 players to start.'}, room=request.sid)
             return
         
-        with game_lock:
-            topic = settings.get('topic')
-            print(f"Selected topic: {topic}")
-            
-            query = SecretWord.query
-            if topic != 'Random':
-                query = query.filter_by(topic=topic)
-            
-            all_words_for_topic = query.all()
-            print(f"Words found for topic: {len(all_words_for_topic)}")
-            
-            if not all_words_for_topic:
-                print("ERROR: No words found")
-                socketio.emit('error', {'msg': 'No words found for this selection!'}, room=request.sid)
-                return
+        topic = settings.get('topic')
+        print(f"Selected topic: {topic}")
+        
+        query = SecretWord.query
+        if topic != 'Random':
+            query = query.filter_by(topic=topic)
+        
+        all_words_for_topic = query.all()
+        print(f"Words found for topic: {len(all_words_for_topic)}")
+        
+        if not all_words_for_topic:
+            print("ERROR: No words found")
+            socketio.emit('error', {'msg': 'No words found for this selection!'}, room=request.sid)
+            return
 
-            candidate_words = [w for w in all_words_for_topic if w.word not in game_state["word_history"]]
-            if not candidate_words:
-                topic_word_set = {w.word for w in all_words_for_topic}
-                game_state["word_history"] = [w for w in game_state["word_history"] if w not in topic_word_set]
-                candidate_words = all_words_for_topic
+        candidate_words = [w for w in all_words_for_topic if w.word not in game_state["word_history"]]
+        if not candidate_words:
+            topic_word_set = {w.word for w in all_words_for_topic}
+            game_state["word_history"] = [w for w in game_state["word_history"] if w not in topic_word_set]
+            candidate_words = all_words_for_topic
 
-            selected_word_obj = random.choice(candidate_words)
-            print(f"Selected word: {selected_word_obj.word}")
+        selected_word_obj = random.choice(candidate_words)
+        print(f"Selected word: {selected_word_obj.word}")
+        
+        current_player_names = list(game_state["players"].keys())
+        random.shuffle(current_player_names)
+        
+        game_state["player_order"] = current_player_names
+        game_state["bluffer"] = game_state["player_order"][0]
+        game_state["current_turn_index"] = random.randint(0, len(current_player_names) - 1)
+        game_state["is_running"] = True
+        game_state["secret_word"] = selected_word_obj.word
+        game_state["topic"] = selected_word_obj.topic
+        game_state["clues"] = []
+        game_state["voting_open"] = False
+        game_state["bluffer_guesses"] = 3
+        game_state["bluffer_knows_word"] = False
+        game_state["bluffer_guessed_this_turn"] = False
+
+        print(f"Game state updated. Bluffer: {game_state['bluffer']}")
+        print(f"Player order: {game_state['player_order']}")
+        print(f"Starting turn index: {game_state['current_turn_index']}")
+
+        for name in game_state["player_order"]:
+            player_data = game_state["players"][name]
+            player_data['is_bluffer'] = (name == game_state["bluffer"])
+            player_data['voted_for'] = None
+            print(f"Sending role_info to {name} (is_bluffer: {player_data['is_bluffer']})")
             
-            current_player_names = list(game_state["players"].keys())
-            random.shuffle(current_player_names)
+            role_data = {'is_bluffer': player_data['is_bluffer']}
+            if player_data['is_bluffer']:
+                role_data['topic'] = selected_word_obj.topic
             
-            game_state["player_order"] = current_player_names
-            game_state["bluffer"] = game_state["player_order"][0]
-            game_state["current_turn_index"] = random.randint(0, len(current_player_names) - 1)
-            game_state["is_running"] = True
-            game_state["secret_word"] = selected_word_obj.word
-            game_state["topic"] = selected_word_obj.topic
-            game_state["clues"] = []
-            game_state["voting_open"] = False
-            game_state["bluffer_guesses"] = 3
-            game_state["bluffer_knows_word"] = False
-            game_state["bluffer_guessed_this_turn"] = False
-
-            print(f"Game state updated. Bluffer: {game_state['bluffer']}")
-            print(f"Player order: {game_state['player_order']}")
-            print(f"Starting turn index: {game_state['current_turn_index']}")
-
-            for name in game_state["player_order"]:
-                player_data = game_state["players"][name]
-                player_data['is_bluffer'] = (name == game_state["bluffer"])
-                player_data['voted_for'] = None
-                print(f"Sending role_info to {name} (is_bluffer: {player_data['is_bluffer']})")
-                
-                role_data = {'is_bluffer': player_data['is_bluffer']}
-                if player_data['is_bluffer']:
-                    role_data['topic'] = selected_word_obj.topic
-                
-                socketio.emit('role_info', role_data, room=player_data['sid'])
+            socketio.emit('role_info', role_data, room=player_data['sid'])
         
         print("Broadcasting game state...")
         broadcast_game_state()
@@ -318,12 +317,11 @@ def handle_submit_clue(data):
         print(f"=== SUBMIT CLUE ===")
         print(f"Player: {name}, Clue: {clue}, Turn: {get_whos_turn()}")
         
-        with game_lock:
-            if name == get_whos_turn() and clue:
-                print(f"Clue accepted!")
-                game_state["clues"].append({'player': name, 'clue': clue})
-                game_state["current_turn_index"] = (game_state["current_turn_index"] + 1) % len(game_state["player_order"])
-                game_state["bluffer_guessed_this_turn"] = False
+        if name == get_whos_turn() and clue:
+            print(f"Clue accepted!")
+            game_state["clues"].append({'player': name, 'clue': clue})
+            game_state["current_turn_index"] = (game_state["current_turn_index"] + 1) % len(game_state["player_order"])
+            game_state["bluffer_guessed_this_turn"] = False
         
         print(f"About to broadcast after clue submission")
         broadcast_game_state()
@@ -336,25 +334,25 @@ def handle_guess_word(data):
     try:
         name = sid_to_name.get(request.sid)
         guess = data.get('guess', '').strip().lower()
-        with game_lock:
-            if not (name == game_state["bluffer"] and 
-                    name == get_whos_turn() and 
-                    guess and 
-                    not game_state["bluffer_knows_word"] and
-                    not game_state["bluffer_guessed_this_turn"]):
-                return emit('error', {'msg': 'You can only guess on your turn, once per turn!'})
-            
-            game_state["bluffer_guessed_this_turn"] = True
-            
-            if game_state["secret_word"].lower() == guess:
-                game_state["bluffer_knows_word"] = True
-                emit('guess_result', {'correct': True, 'msg': "You got it! Now keep bluffing!"})
+        
+        if not (name == game_state["bluffer"] and 
+                name == get_whos_turn() and 
+                guess and 
+                not game_state["bluffer_knows_word"] and
+                not game_state["bluffer_guessed_this_turn"]):
+            return emit('error', {'msg': 'You can only guess on your turn, once per turn!'})
+        
+        game_state["bluffer_guessed_this_turn"] = True
+        
+        if game_state["secret_word"].lower() == guess:
+            game_state["bluffer_knows_word"] = True
+            emit('guess_result', {'correct': True, 'msg': "You got it! Now keep bluffing!"})
+        else:
+            game_state["bluffer_guesses"] -= 1
+            if game_state["bluffer_guesses"] > 0:
+                emit('guess_result', {'correct': False, 'msg': f"WRONG! {game_state['bluffer_guesses']} guesses left."})
             else:
-                game_state["bluffer_guesses"] -= 1
-                if game_state["bluffer_guesses"] > 0:
-                    emit('guess_result', {'correct': False, 'msg': f"WRONG! {game_state['bluffer_guesses']} guesses left."})
-                else:
-                    end_game(f"The Bluffer, {name}, ran out of guesses!")
+                end_game(f"The Bluffer, {name}, ran out of guesses!")
     except Exception as e:
         print(f"Error in guess_word: {e}")
 
@@ -362,12 +360,11 @@ def handle_guess_word(data):
 def handle_trigger_vote():
     try:
         if request.sid == game_state["host_sid"]:
-            with game_lock:
-                if game_state["bluffer_knows_word"]:
-                    end_game(f"The Bluffer ({game_state['bluffer']}) WINS! They knew the secret word and successfully bluffed everyone!")
-                    return
-                
-                game_state["voting_open"] = True
+            if game_state["bluffer_knows_word"]:
+                end_game(f"The Bluffer ({game_state['bluffer']}) WINS! They knew the secret word and successfully bluffed everyone!")
+                return
+            
+            game_state["voting_open"] = True
             broadcast_game_state()
     except Exception as e:
         print(f"Error in trigger_vote: {e}")
@@ -377,29 +374,29 @@ def handle_submit_vote(data):
     try:
         name = sid_to_name.get(request.sid)
         voted_for = data.get('player_name')
-        with game_lock:
-            if not (name and game_state["voting_open"] and voted_for):
-                 return
-            game_state["players"][name]['voted_for'] = voted_for
+        
+        if not (name and game_state["voting_open"] and voted_for):
+             return
+        game_state["players"][name]['voted_for'] = voted_for
+        
+        if all(p['voted_for'] for p in game_state["players"].values()):
+            if game_state["bluffer_knows_word"]:
+                end_game(f"The Bluffer ({game_state['bluffer']}) WINS! They knew the secret word and successfully bluffed everyone!")
+                return
             
-            if all(p['voted_for'] for p in game_state["players"].values()):
-                if game_state["bluffer_knows_word"]:
-                    end_game(f"The Bluffer ({game_state['bluffer']}) WINS! They knew the secret word and successfully bluffed everyone!")
-                    return
-                
-                votes = {}
-                for p_name in game_state["players"]:
-                    vote = game_state["players"][p_name]['voted_for']
-                    if vote:
-                        votes[vote] = votes.get(vote, 0) + 1
-                
-                if not votes: return
-                voted_out_player = max(votes, key=votes.get)
-                
-                if voted_out_player == game_state["bluffer"]:
-                    end_game(f"The group correctly found the Bluffer! It was {game_state['bluffer']}.")
-                else:
-                    end_game(f"{voted_out_player} was not the Bluffer. The real Bluffer was {game_state['bluffer']}.")
+            votes = {}
+            for p_name in game_state["players"]:
+                vote = game_state["players"][p_name]['voted_for']
+                if vote:
+                    votes[vote] = votes.get(vote, 0) + 1
+            
+            if not votes: return
+            voted_out_player = max(votes, key=votes.get)
+            
+            if voted_out_player == game_state["bluffer"]:
+                end_game(f"The group correctly found the Bluffer! It was {game_state['bluffer']}.")
+            else:
+                end_game(f"{voted_out_player} was not the Bluffer. The real Bluffer was {game_state['bluffer']}.")
     except Exception as e:
         print(f"Error in submit_vote: {e}")
 
