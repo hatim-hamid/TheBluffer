@@ -111,8 +111,9 @@ def add_word():
         db.session.commit()
         return jsonify(new_word.to_dict()), 201
     except Exception as e:
+        db.session.rollback()  # Add rollback on error
         print(f"Error adding word: {e}")
-        return jsonify({"error": "Server error"}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/words/<int:word_id>', methods=['DELETE'])
 def delete_word(word_id):
