@@ -400,6 +400,32 @@ def handle_submit_vote(data):
     except Exception as e:
         print(f"Error in submit_vote: {e}")
 
+@app.route('/api/reset-game', methods=['POST'])
+def reset_game():
+    """Emergency reset endpoint"""
+    try:
+        global sid_to_name
+        sid_to_name = {}
+        
+        game_state["players"] = {}
+        game_state["player_order"] = []
+        game_state["is_running"] = False
+        game_state["secret_word"] = ""
+        game_state["topic"] = ""
+        game_state["bluffer"] = None
+        game_state["bluffer_guesses"] = 3
+        game_state["bluffer_knows_word"] = False
+        game_state["bluffer_guessed_this_turn"] = False
+        game_state["clues"] = []
+        game_state["current_turn_index"] = 0
+        game_state["voting_open"] = False
+        game_state["host_sid"] = None
+        
+        broadcast_game_state()
+        return jsonify({"message": "Game state reset successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 def end_game(message_prefix):
     try:
         full_message = f"{message_prefix} The secret word was: {game_state['secret_word']}"
