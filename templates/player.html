@@ -42,7 +42,7 @@
                 <!-- Clues Display Section -->
                 <div id="clues-display" class="p-4 bg-slate-50 rounded-lg border-2 border-slate-200 max-h-64 overflow-y-auto">
                     <h3 class="text-lg font-semibold text-slate-700 mb-3 text-center">Clues Given</h3>
-                    <div id="player-clues-list" class="space-y-2">
+                    <div id="player-clues-list" class="flex flex-wrap">
                         <p class="text-slate-400 text-center text-sm">No clues yet...</p>
                     </div>
                 </div>
@@ -252,9 +252,7 @@
                 cluesList.innerHTML = '<p class="text-slate-400 text-center text-sm">No clues yet...</p>';
             } else {
                 cluesList.innerHTML = clues.map(c => `
-                    <div class="bg-white p-3 rounded-lg shadow-sm border-l-4 border-indigo-500">
-                        <p class="text-base font-semibold text-slate-700">"${c.clue}"</p>
-                    </div>
+                    <span class="inline-block bg-indigo-100 text-indigo-800 px-3 py-2 rounded-lg font-semibold text-base mr-2 mb-2">${c.clue}</span>
                 `).join('');
             }
         }
