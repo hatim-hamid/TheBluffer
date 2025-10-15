@@ -25,6 +25,8 @@
         .btn-primary:hover { background-color: #4338ca; }
         .btn-secondary { background-color: #64748b; color: white; }
         .btn-secondary:hover { background-color: #475569; }
+        .btn-danger { background-color: #dc2626; color: white; }
+        .btn-danger:hover { background-color: #b91c1c; }
         .player-tag, .history-tag {
             background-color: #f1f5f9; color: #1e293b;
             padding: 0.5rem 1rem; border-radius: 9999px; font-weight: 600;
@@ -81,8 +83,9 @@
                     <h2 class="text-2xl font-bold text-slate-800 border-b pb-2 mb-4">Clues Given</h2>
                     <p id="turn-info" class="text-center text-xl font-semibold text-slate-600 my-4 p-2 bg-slate-50 rounded-lg"></p>
                     <div id="clues-grid" class="grid grid-cols-2 md:grid-cols-3 gap-4"></div>
-                    <div id="vote-controls" class="mt-8 text-center hidden">
+                    <div id="vote-controls" class="mt-8 flex gap-3 justify-center hidden">
                         <button id="trigger-vote-btn" class="btn btn-secondary">Let's Vote!</button>
+                        <button id="end-game-btn" class="btn btn-danger">End Game</button>
                     </div>
                 </div>
             </div>
@@ -121,6 +124,7 @@
         const turnInfo = document.getElementById('turn-info');
         const voteControls = document.getElementById('vote-controls');
         const triggerVoteBtn = document.getElementById('trigger-vote-btn');
+        const endGameBtn = document.getElementById('end-game-btn');
         const gameOverModal = document.getElementById('game-over-modal');
         const gameOverMessage = document.getElementById('game-over-message');
         const errorMessage = document.getElementById('error-message');
@@ -137,6 +141,11 @@
         
         startGameBtn.addEventListener('click', () => socket.emit('start_game', { topic: topicSelect.value }));
         triggerVoteBtn.addEventListener('click', () => socket.emit('trigger_vote'));
+        endGameBtn.addEventListener('click', () => {
+            if (confirm('Are you sure you want to end the current game?')) {
+                socket.emit('force_end_game');
+            }
+        });
 
         socket.on('error', (data) => {
             errorMessage.textContent = data.msg;
@@ -154,9 +163,9 @@
                 lobbyView.style.display = 'none';
                 gameView.style.display = 'block';
                 updateGamePlayers(state.players, state.whos_turn);
-                updatePlayerClueBoxes(state.players, state.clues, state.whos_turn);  // CHANGED THIS LINE
+                updatePlayerClueBoxes(state.players, state.clues, state.whos_turn);
                 turnInfo.textContent = state.whos_turn ? `It's ${state.whos_turn}'s turn.` : "Waiting...";
-                voteControls.style.display = 'block';
+                voteControls.style.display = 'flex';
             }
         });
         
