@@ -180,6 +180,14 @@ def handle_disconnect():
             game_state["host_sid"] = None
     except Exception as e:
         print(f"Error in disconnect: {e}")
+        
+@socketio.on('force_end_game')
+def handle_force_end_game():
+    try:
+        if request.sid == game_state["host_sid"]:
+            end_game("Host ended the game.")
+    except Exception as e:
+        print(f"Error in force_end_game: {e}")
 
 @socketio.on('join_game')
 def handle_join(data):
