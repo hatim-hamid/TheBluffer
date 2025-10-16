@@ -188,31 +188,40 @@
                 <div class="player-tag ${p === whos_turn ? 'turn-indicator' : ''}">${p}</div>`).join('');
         }
         
-        function updateClues(clues) {
-            // This function is no longer used, but keep it for compatibility
-        }
-
         function updatePlayerClueBoxes(players, clues, whos_turn) {
             const cluesGrid = document.getElementById('clues-grid');
             if (!cluesGrid) return;
             
-            // Create a map of player -> their latest clue
+            // Create a map of player -> their clue with color
             const playerClues = {};
             clues.forEach(c => {
-                playerClues[c.player] = c.clue;
+                playerClues[c.player] = {
+                    clue: c.clue,
+                    color: c.color
+                };
             });
             
             // Generate boxes for each player
             cluesGrid.innerHTML = players.map(player => {
-                const clue = playerClues[player] || 'Waiting...';
+                const clueData = playerClues[player];
+                const clueText = clueData?.clue || 'Waiting...';
                 const isCurrentTurn = player === whos_turn;
-                const boxColor = isCurrentTurn ? 'bg-indigo-100 border-indigo-500 border-4' : 'bg-slate-50 border-slate-200 border-2';
-                const textColor = isCurrentTurn ? 'text-indigo-900' : 'text-slate-700';
+                
+                let boxClasses, textClasses;
+                if (clueData && clueData.color) {
+                    // Use player's assigned color
+                    boxClasses = `${clueData.color.bg} ${clueData.color.border} border-4`;
+                    textClasses = clueData.color.text;
+                } else {
+                    // Default for waiting
+                    boxClasses = isCurrentTurn ? 'bg-indigo-100 border-indigo-500 border-4' : 'bg-slate-50 border-slate-200 border-2';
+                    textClasses = isCurrentTurn ? 'text-indigo-900' : 'text-slate-700';
+                }
                 
                 return `
-                    <div class="${boxColor} rounded-xl p-4 transition-all duration-300">
-                        <p class="font-bold ${textColor} text-sm mb-2">${player}</p>
-                        <p class="text-lg ${textColor} italic">"${clue}"</p>
+                    <div class="${boxClasses} rounded-xl p-4 transition-all duration-300">
+                        <p class="font-bold ${textClasses} text-sm mb-2">${player}</p>
+                        <p class="text-lg ${textClasses} font-bold italic">"${clueText}"</p>
                     </div>
                 `;
             }).join('');

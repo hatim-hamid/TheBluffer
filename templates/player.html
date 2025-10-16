@@ -259,9 +259,14 @@
             if (clues.length === 0) {
                 cluesList.innerHTML = '<p class="text-slate-400 text-center text-sm">No clues yet...</p>';
             } else {
-                cluesList.innerHTML = clues.map(c => `
-                    <span class="inline-block bg-indigo-100 text-indigo-800 px-3 py-2 rounded-lg font-semibold text-base mr-2 mb-2">${c.clue}</span>
-                `).join('');
+                cluesList.innerHTML = clues.map(c => {
+                    const bgClass = c.color?.bg || 'bg-indigo-100';
+                    const textClass = c.color?.text || 'text-indigo-800';
+                    const borderClass = c.color?.border || 'border-indigo-500';
+                    return `
+                        <span class="inline-block ${bgClass} ${textClass} px-3 py-2 rounded-lg font-bold text-base mr-2 mb-2 border-2 ${borderClass}">${c.clue}</span>
+                    `;
+                }).join('');
             }
         }
         
