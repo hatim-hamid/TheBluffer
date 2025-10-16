@@ -19,6 +19,28 @@ socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*", ping_t
 
 sid_to_name = {}
 
+# Color schemes for up to 10 players
+PLAYER_COLORS = [
+    {'bg': 'bg-black', 'text': 'text-white', 'border': 'border-black'},           # Black with white text
+    {'bg': 'bg-red-600', 'text': 'text-white', 'border': 'border-red-600'},       # Red with white text
+    {'bg': 'bg-blue-600', 'text': 'text-white', 'border': 'border-blue-600'},     # Blue with white text
+    {'bg': 'bg-green-600', 'text': 'text-white', 'border': 'border-green-600'},   # Green with white text
+    {'bg': 'bg-purple-600', 'text': 'text-white', 'border': 'border-purple-600'}, # Purple with white text
+    {'bg': 'bg-yellow-300', 'text': 'text-black', 'border': 'border-yellow-300'}, # Yellow bg with black text
+    {'bg': 'bg-orange-400', 'text': 'text-black', 'border': 'border-orange-400'}, # Orange bg with black text
+    {'bg': 'bg-pink-400', 'text': 'text-white', 'border': 'border-pink-400'},     # Pink with white text
+    {'bg': 'bg-teal-500', 'text': 'text-white', 'border': 'border-teal-500'},     # Teal with white text
+    {'bg': 'bg-lime-400', 'text': 'text-black', 'border': 'border-lime-400'},     # Lime bg with black text
+]
+
+def get_player_color(player_name, player_order):
+    """Get color scheme for a player based on their position in player_order"""
+    try:
+        index = player_order.index(player_name)
+        return PLAYER_COLORS[index % len(PLAYER_COLORS)]
+    except (ValueError, IndexError):
+        return PLAYER_COLORS[0]
+
 # --- Database Models ---
 class SecretWord(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -62,9 +84,19 @@ def broadcast_game_state():
         "word_history": game_state["word_history"]
     }
     if game_state["is_running"]:
+        # Add color information to clues
+        clues_with_colors = []
+        for clue in game_state["clues"]:
+            color_scheme = get_player_color(clue['player'], game_state["player_order"])
+            clues_with_colors.append({
+                'player': clue['player'],
+                'clue': clue['clue'],
+                'color': color_scheme
+            })
+        
         state_for_clients.update({
             "players": game_state["player_order"],
-            "clues": game_state["clues"],
+            "clues": clues_with_colors,
             "whos_turn": get_whos_turn(),
             "voting_open": game_state["voting_open"],
             "secret_word": game_state["secret_word"],
